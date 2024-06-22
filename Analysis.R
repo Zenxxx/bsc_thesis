@@ -3,6 +3,11 @@ setwd("C:/Workspace/UvA/3.5.Bachelor Thesis Actuarial Science/Thesis")
 
 #Data visualization.
 library(ggplot2)
+#Graph Legend
+library(cowplot)
+#Graphs
+library(gridExtra)
+library(grid)
 #Volatility.
 library(TTR)
 #Spline functions.
@@ -31,10 +36,9 @@ library(MASS)
 library(stats)
 #Truncated Distribution
 library(truncdist)
+#QQ plot
 library(QRM)
-library(gridExtra)
-library(grid)
-library(cowplot)
+
 # Seed
 set.seed(13793632)
 

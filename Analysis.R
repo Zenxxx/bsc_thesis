@@ -35,6 +35,8 @@ library(stats)
 library(truncdist)
 #QQ plot
 library(QRM)
+#Progress Bar
+library(progress)
 
 # Seed
 set.seed(13793632)
@@ -404,8 +406,10 @@ Excecute_MCMC <- function(initial_beta, iterations, sd)
 {
   beta <- initial_beta
   beta_samples <- numeric(iterations)
+  pb <- progress_bar$new(total = n, format = "[:bar] :percent Finishes in: :eta", clear = TRUE)
   for(i in 1:iterations)
   {
+    pb$tick()
     beta_proposal <- rnorm(1, beta, sd)
     while (beta_proposal < 0)
     {
@@ -418,6 +422,7 @@ Excecute_MCMC <- function(initial_beta, iterations, sd)
       beta <- beta_proposal
     }
     beta_samples[i] <- beta
+    Sys.sleep(1 / n)
   }
   return(beta_samples)
 }
@@ -791,12 +796,15 @@ MAPEGBM <- vector()
 MAPEMJD <- vector()
 MAPEHJD_MLEMCMC <- vector()
 MAPEHJD_GMM <- vector()
+pb <- progress_bar$new(total = n, format = "[:bar] :percent Finishes in: :eta", clear = TRUE)
 for (i in 1:10000)
 {
+  pb$tick()
   MAPEGBM[i] <- MAPE(close, GBM_path(open[1], drift, vol, N)$Price)
   MAPEMJD[i] <- MAPE(close,MJD_path(open[1], drift, vol, N, frequency, jumpexp, jumpsd)$Price)
   MAPEHJD_MLEMCMC[i] <- MAPE(close, HJD_path_MLEMCMC(open[1], drift, vol, N, Solution_lambda_inf, Solution_alpha, betaMCMC, Star_EALD[1], Star_EALD[2], Star_EALD[3])$Price)
   MAPEHJD_GMM[i] <- MAPE(close, HJD_path_GMM(open[1], Star_GMM[1], Star_GMM[2], N, Star_GMM[3], Star_GMM[4], Star_GMM[5], Star_Distribution[1], Star_Distribution[2], Star_Distribution[3])$Price)
+  Sys.sleep(1 / 10000)
 }
 MCMAPEGBM <- mean(MAPEGBM)
 MCMAPEMJD <- mean(MAPEMJD)

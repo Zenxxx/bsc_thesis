@@ -1,6 +1,3 @@
-# Loading required libraries and setting working directory
-setwd("C:/Workspace/UvA/3.5.Bachelor Thesis Actuarial Science/Thesis")
-
 #Data visualization.
 library(ggplot2)
 #Graph Legend
@@ -75,25 +72,30 @@ open <- data$Open
 low <- data$Low
 high <- data$High
 close <- data$Close
-logopen <- log(open)
-loglow <- log(low)
-loghigh <- log(high)
-logclose <- log(close)
 logreturn <- diff(log(close))
 N <- length(date)
 Close_data <- data.frame(Day = seq(1, length(close)), Price = close, group = "Close Data")
 
 # 1 Group Student's t test 
-
 t.test(logreturn, mu = 0)
 
 # Calculation of Volatility
-volatilities <- volatility(cbind(logopen, loghigh, loglow, logclose), n = 30, calc = "rogers.satchell")
+volatilities <- volatility(cbind(open, high, low, close), n = 30, calc = "rogers.satchell", N=1)
 plot(seq(30:N), na.omit(volatilities), type="l", main="Volatility over time", xlab = "Days", ylab="Volatility")
 vol <- mean(na.omit(volatilities))
 
 # Drift
 drift <- mean(logreturn) + 0.5 * vol^2
+
+#Anderson-Darling Test
+ad.test(logreturn)
+
+#Histogram
+returnhist <- hist(logreturn,breaks=2500,xlim=c(-0.15,0.15))
+returnnorm <- curve(dnorm(x, drift - 0.5 * vol^2, vol), -0.15, 0.15)
+plot(returnhist)
+lines(returnnorm, col="red")
+
 
 # GBM Simulation
 GBM_path <- function(S0, mu, sigma, N) 
@@ -123,6 +125,7 @@ grid.arrange(
   heights = c(10, 1),
   top = textGrob("GBM Simulation Comparisons", gp = gpar(fontsize = 16, fontface = "bold"))
 )
+
 #Expected value and Variance
 GBMexp <- exp(drift*N)*open[1]
 GBMvar <- exp(2*drift*N)*open[1]^2*(exp(vol^2*N)-1)
@@ -191,7 +194,7 @@ for(i in detected_jumps)
 {
   whenjump[i] <- 1
 }
-acf(whenjump)
+acf(whenjump, main = "ACF plot for jumps")
 finalp <- vector()
 for(j in 1:50)
 {
@@ -739,7 +742,7 @@ intervals_GMM <- diff(Hawkes_Poisson_GMM)
 qqplot(qexp(ppoints(length(intervals_GMM)), rate = 1), intervals_GMM, main = "Q-Q Plot of the interval vs Exponential with GMM")
 abline(0, 1, col = "red")
 
-ks.test(intervals_MLE, "pexp", rate = 1)
+ks.test(intervals_GMM, "pexp", rate = 1)
 
 #Truncated MLE
 truncated <- function(x, rate, q) {
@@ -776,8 +779,8 @@ for (i in 1:10)
   ks_result_GMM <- ks.test(subintervals_GMM[[i]], truncated, rate = 1, q = cutoff_GMM)
   results_GMM <- rbind(results_GMM, data.frame(Quantile = i / 10, Size = length(subintervals_GMM[[i]]), Statistic = ks_result_GMM$statistic, p_Value = ks_result_GMM$p.value))
 }
-par(mfrow = c(1, 1))
 print(results_GMM)
+par(mfrow = c(1, 1))
 
 #MAPE
 MAPE <- function(actual, simulation)
@@ -807,5 +810,3 @@ min(MAPEGBM)
 min(MAPEMJD)
 min(MAPEHJD_MLEMCMC)
 min(MAPEHJD_GMM)
-
-

@@ -96,7 +96,7 @@ ad.test(logreturn)
 returnhist <- hist(logreturn,breaks=2500,xlim=c(-0.15,0.15))
 returnnorm <- curve(dnorm(x, drift - 0.5 * vol^2, vol), -0.15, 0.15)
 plot(returnhist)
-lines(returnnorm, col="red")
+lines(returnnorm, col="red", lw=5)
 
 
 # GBM Simulation
@@ -291,18 +291,28 @@ Loglik_EALD_p <- function(p, data)
   }
   return(-L)
 }
-estimate_p_MLE <- function(data) {
+estimate_p <- function(data) {
   fit <- optim(par = 0.5, fn = Loglik_EALD_p, data = data, method = "Brent", lower = 0, upper = 1)
   return(fit$par)
 }
-bootstrap_MLE <- function(data, indices) {
+bootstrap <- function(data, indices) {
   sample <- data[indices]
-  return(estimate_p_MLE(sample))
+  return(estimate_p(sample))
 }
-results_p <- boot(data = jump, statistic = function(data, indices) bootstrap_MLE(data, indices), R = 1000)
-conf_MLE <- boot.ci(results_p, type = "perc")
-print(conf_MLE)
-sd_p_MLE <- sd(results_p$t)
+results_p <- boot(data = jump, statistic = function(data, indices) bootstrap(data, indices), R = 1000)
+conf <- boot.ci(results_p, type = "perc")
+print(conf)
+sd_p <- sd(results_p$t)
+print(sd_p)
+
+#Probability for positive jumps
+p <- length(jump[0<jump])/length(jump)
+p
+#Wald test
+W <- (Star_EALD[1]-p)^2/sd_p
+p_value <- 1 - pchisq(W, 1)
+cat("Wald statistic: ", W, "\n")
+cat("p-value: ", p_value, "\n")
 
 #Function A
 A <- function(beta,event)
@@ -406,7 +416,7 @@ Excecute_MCMC <- function(initial_beta, iterations, sd)
 {
   beta <- initial_beta
   beta_samples <- numeric(iterations)
-  pb <- progress_bar$new(total = n, format = "[:bar] :percent Finishes in: :eta", clear = TRUE)
+  pb <- progress_bar$new(total = 15000, format = "[:bar] :percent Finishes in: :eta", clear = TRUE)
   for(i in 1:iterations)
   {
     pb$tick()
@@ -422,7 +432,7 @@ Excecute_MCMC <- function(initial_beta, iterations, sd)
       beta <- beta_proposal
     }
     beta_samples[i] <- beta
-    Sys.sleep(1 / n)
+    Sys.sleep(1 / 15000)
   }
   return(beta_samples)
 }
@@ -496,9 +506,9 @@ EALD_sample <- function(n,p,a,b)
   return(sample)
 }
 
-HJD_path_MLEMCMC <- function(S0, drift, vol, N, lambda_infty, alpha, beta, p, a, b) {
-  HJDsim_MLEMCMC <- numeric(N)
-  HJDsim_MLEMCMC[1] <- S0
+HJD_path <- function(S0, drift, vol, N, lambda_infty, alpha, beta, p, a, b) {
+  HJDsim <- numeric(N)
+  HJDsim[1] <- S0
   jumpindex <- unique(as.integer(simulateHawkes(lambda_infty, alpha, beta, 10000)[[1]]))
   jumplogic <- rep(0, N)
   jumplogic[jumpindex] <- 1
@@ -519,195 +529,34 @@ HJD_path_MLEMCMC <- function(S0, drift, vol, N, lambda_infty, alpha, beta, p, a,
   
   for (t in 2:N) {
     dS <- drift - 0.5 * vol^2 - lambda[t] * k + vol * Wiener[t] + jumplogic[t] * jumpsize[t]
-    HJDsim_MLEMCMC[t] <- HJDsim_MLEMCMC[t - 1] * exp(dS)
+    HJDsim[t] <- HJDsim[t - 1] * exp(dS)
   }
   
-  return(data.frame(Day = seq(1:N), Price = HJDsim_MLEMCMC, group = "HJD Simulation with MLEMCMC"))
+  return(data.frame(Day = seq(1:N), Price = HJDsim, group = "HJD Simulation with MLEMCMC"))
 }
-HJDgraph_MLEMCMC <- list()
+HJDgraph <- list()
 for(i in 1:6)
 {
-  HJDsim_MLEMCMC <- HJD_path_MLEMCMC(open[1], drift, vol, N, Solution_lambda_inf, Solution_alpha, betaMCMC, Star_EALD[1], Star_EALD[2], Star_EALD[3])
-  HJDgraph_MLEMCMC[[i]] <- plot_comparison(rbind(HJDsim_MLEMCMC, Close_data))
+  HJDsim <- HJD_path(open[1], drift, vol, N, Solution_lambda_inf, Solution_alpha, betaMCMC, Star_EALD[1], Star_EALD[2], Star_EALD[3])
+  HJDgraph[[i]] <- plot_comparison(rbind(HJDsim, Close_data))
 }
-legend <- get_legend(HJDgraph_MLEMCMC[[1]] + theme(legend.position = "bottom"))
+legend <- get_legend(HJDgraph[[1]] + theme(legend.position = "bottom"))
 grid.arrange(
-  do.call(arrangeGrob, c(HJDgraph_MLEMCMC, nrow = 3)),
+  do.call(arrangeGrob, c(HJDgraph, nrow = 3)),
   legend,
   ncol = 1,
   heights = c(10, 1),
   top = textGrob("HJD Simulation Comparisons with MLE & MCMC", gp = gpar(fontsize = 16, fontface = "bold"))
 )
 
-#Parameters for Distribution of Jumps
-Moment_Distribution <- function(p,gam1, gam2,k)
-{
-  return((-1)^k*factorial(k)*p/(gam1^k)+factorial(k)*(1-p)/(gam2)^k)
-}
-GMM_Distribution <- function(par, data, k)
-{
-  p <- par[1]
-  gam1 <- par[2]
-  gam2 <- par[3]
-  sample <- numeric(k)
-  theoretical <- numeric(k)
-  for (i in 1:k) {
-    sample[i] <- mean(data^i)
-    theoretical[i] <- Moment_Distribution(p,gam1,gam2,i)
-  }
-  diff <- sample - theoretical
-  return(sum(diff^2))
-}
-Initial_Distribution <- c(Star_EALD[1],Star_EALD[2],-Star_EALD[3])
-Lower_Distribution <- c(0, 0, 0)
-Upper_Distribution <- c(1, Inf, Inf)
-
-Optim_Distribution <- optim(par = Initial_Distribution, fn = GMM_Distribution, data=jump, k=3, method = "L-BFGS-B", lower = Lower_Distribution, upper = Upper_Distribution)
-Star_Distribution <- Optim_Distribution$par
-print(Star_Distribution)
-
-#Bootstrap for the confidence interval of p GMM
-GMM_Distribution_p <- function(p,data)
-{
-  a <- Star_Distribution[2]
-  b <- Star_Distribution[3]
-  
-  m1 <- mean(data)-Moment_Distribution(p,a,b,1)
-  return(abs(m1))
-}
-estimate_p <- function(data) {
-  opt_res <- optim(par = 0.5, fn = GMM_Distribution_p, data = data, method = "Brent",lower = 0,upper = 1)
-  return(opt_res$par)
-}
-bootstrap <- function(data, indices) {
-  sample <- data[indices]
-  return(estimate_p(sample))
-}
-results <- boot(jump, statistic = bootstrap, R = 100)
-conf_GMM <- boot.ci(results, type = "perc")
-print(conf_GMM)
-sd_p_GMM <- sd(results$t)
-
-#Parameters by GMM Estimations
-Theoretical_GMM <- function(parameters) {
-  mu <- parameters[1]
-  sigma <- parameters[2]
-  lambda_infty <- parameters[3]
-  alpha <- parameters[4]
-  beta <- parameters[5]
-  
-  lambda <- alpha*lambda_infty/(alpha-beta)
-  delta <- 1
-  
-  first <- (mu + lambda*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],1))*delta
-  second <- (sigma+ lambda*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],2))*delta+delta^2*beta*lambda*(2*alpha-beta)*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],1)^2/(2*(alpha-beta))
-  third <- lambda*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],3)*delta+delta^2*3/2*(2*alpha-beta)*beta*lambda*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],1)*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],2)/(alpha-beta)
-  fourth <- delta*lambda*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],4)+3*delta^2*sigma^2+6*sigma*lambda*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],2)+3*lambda*(lambda+(2*alpha-beta)*beta/(2*(alpha-beta)))*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],2)^2+(2*(2*alpha-beta)*beta*lambda*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],1)*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],3))/(alpha-beta)
-  autocov <- beta*lambda*(2*alpha-beta)/(2*(alpha-beta))*exp(-(alpha-beta)*10)*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],1)^2*delta^2
-  autocov2 <- beta*lambda*(2*alpha-beta)/(2*(alpha-beta))*exp(-(alpha-beta)*10)*Moment_Distribution(Star_Distribution[1],Star_Distribution[2],Star_Distribution[3],2)^2*delta^2
-  return(c(first, second, third, fourth,autocov, autocov2))
-}
-
-Covariance <- function(delta_X, mean_delta_X, tau, r) {
-  n <- length(delta_X)
-  covariance <- 0
-  tauincluded <- delta_X[tau:n]
-  for (t in 1:(n-tau)) 
-  {
-    term1 <- (delta_X[t])^r - (mean_delta_X)^r
-    term2 <- (delta_X[t + tau])^r  - (mean(tauincluded))^r
-    covariance <- covariance + term1 * term2
-    covariance <- covariance / (n - tau)
-    return(covariance)
-  }
-}
-
-GMM_Function <- function(parameters, data) {
-  Sample_Moments <- c(mean(data),mean((data-mean(data))^2),mean((data-mean(data))^3),mean((data-mean(data))^4),Covariance(data,mean(data),10,1),Covariance(data,mean(data),5,2))
-  Theoretical_Moments <- Theoretical_GMM(parameters)
-  Diff <- Sample_Moments - Theoretical_Moments
-  return(sum(Diff^2))
-}
-
-Initial_GMM <- c(drift, vol, Solution_lambda_inf, Solution_alpha, betaMCMC)
-Optim_GMM <- optim(Initial_GMM, GMM_Function, data = logreturn, method = "BFGS")
-Star_GMM <- Optim_GMM$par
-print(Star_GMM)
-Solution_alpha/betaMCMC
-Star_GMM[4]/Star_GMM[5]
-
-#Check for over-identification
-Jstat <- N * GMM_Function(Star_GMM, logreturn)
-#Follows a chi-squared distribution with df=1
-p_val <- 1 - pchisq(Jstat, 1)
-p_val
-if (p_val < 0.05) 
-{
-  cat("Moment conditions may not be statistically compatible \n")
-} else
-{
-  cat("Moment conditions are statistically compatible.\n")
-}
-
-#HJD GMM Simulation
-Distribution_sample <- function(n,p,a,b)
-{
-  prob_pos <- rbinom(n, 1, p) == 1
-  sample <- numeric(n)
-  sample[prob_pos] <- rexp(sum(prob_pos), rate = a)
-  sample[!prob_pos] <- -rexp(sum(!prob_pos), rate = b)
-  return(sample)
-}
-
-HJD_path_GMM  <- function(S0, drift, vol, N, lambda_infty, alpha, beta, p, a, b) {
-  HJDsim_GMM <- numeric(N)
-  HJDsim_GMM[1] <- S0
-  jumpindex <- unique(as.integer(simulateHawkes(lambda_infty, alpha, beta, 10000)[[1]]))
-  jumplogic <- rep(0, N)
-  jumplogic[jumpindex] <- 1
-  jumpsize <- Distribution_sample(N, p, a, b)
-  Wiener <- rnorm(N)
-  
-  for (t in 2:N) {
-    dS <- drift+ sqrt(vol) * Wiener[t] + jumplogic[t] * jumpsize[t]
-    HJDsim_GMM[t] <- HJDsim_GMM[t - 1] * exp(dS)
-  }
-  
-  return(data.frame(Day = seq(1:N), Price = HJDsim_GMM, group = "HJD Simulation with GMM"))
-}
-HJDgraph_GMM <- list()
-for(i in 1:6)
-{
-  HJDsim_GMM <- HJD_path_GMM(open[1], Star_GMM[1], Star_GMM[2], N, Star_GMM[3], Star_GMM[4], Star_GMM[5], Star_Distribution[1], Star_Distribution[2], Star_Distribution[3])
-  HJDgraph_GMM[[i]] <- plot_comparison(rbind(HJDsim_GMM, Close_data))
-}
-legend <- get_legend(HJDgraph_GMM[[1]] + theme(legend.position = "bottom"))
-grid.arrange(
-  do.call(arrangeGrob, c(HJDgraph_GMM, nrow = 3)),
-  legend,
-  ncol = 1,
-  heights = c(10, 1),
-  top = textGrob("HJD Simulation Comparisons with GMM", gp = gpar(fontsize = 16, fontface = "bold"))
-)
-
-#Two sample Wald test
-W <- (Star_EALD[1]-Star_Distribution[1])^2/(sd_p_MLE^2+sd_p_GMM^2)
-crit_value <- qchisq(0.95, 1)
-if (W > crit_value) {
-  cat("The estimates are significantly different.\n")
-} else {
-  cat("The estimates are not significantly different.\n")
-}
 
 #Goodness of fit
 EALD <- function(x, p, a, b) 
 {
   ifelse(x < 0, (1 - p) * (1 - exp(b * x)), p * (1 - exp(-a * x)) + (1 - p))
 }
-KS_MLE <- ks.test(jump, function(x) EALD(x, Star_Distribution[1], Star_Distribution[2], Star_Distribution[3]))
-KS_GMM <- ks.test(jump, function(x) EALD(x, Star_EALD[1], Star_EALD[2], Star_EALD[3]))
-print(KS_MLE)
-print(KS_GMM)
+KS <- ks.test(jump, function(x) EALD(x, Star_EALD[1], Star_EALD[2], Star_EALD[3]))
+print(KS)
 
 # Testing for Hawkes
 Integration_Hawkes <- function(times, mu, alpha, beta)
@@ -730,62 +579,35 @@ Integration_Hawkes <- function(times, mu, alpha, beta)
   return(cum_intensity)
 }
 #MLE
-transformed_times_MLE <- Integration_Hawkes(detected_jumps, Solution_lambda_inf, Solution_alpha, betaMCMC)
-Hawkes_Poisson_MLE <- transformed_times_MLE[detected_jumps]
-intervals_MLE <- diff(Hawkes_Poisson_MLE)
+transformed_times <- Integration_Hawkes(detected_jumps, Solution_lambda_inf, Solution_alpha, betaMCMC)
+Hawkes_Poisson <- transformed_times[detected_jumps]
+intervals <- diff(Hawkes_Poisson)
 
-qqplot(qexp(ppoints(length(intervals_MLE)), rate = 1), intervals_MLE, main = "Q-Q Plot of the interval vs Exponential with MLE")
+qqplot(qexp(ppoints(length(intervals)), rate = 1), intervals, main = "Q-Q Plot of the interval vs Exponential with MLE")
 abline(0, 1, col = "red")
 
-ks.test(intervals_MLE, "pexp", rate = 1)
-
-#GMM
-transformed_times_GMM <- Integration_Hawkes(detected_jumps, Star_GMM[3], Star_GMM[4], Star_GMM[5])
-Hawkes_Poisson_GMM <- transformed_times_GMM[detected_jumps]
-intervals_GMM <- diff(Hawkes_Poisson_GMM)
-
-qqplot(qexp(ppoints(length(intervals_GMM)), rate = 1), intervals_GMM, main = "Q-Q Plot of the interval vs Exponential with GMM")
-abline(0, 1, col = "red")
-
-ks.test(intervals_GMM, "pexp", rate = 1)
+ks.test(intervals, "pexp", rate = 1)
 
 #Truncated MLE
 truncated <- function(x, rate, q) {
   qexp_cdf <- pexp(q, rate)
   return(pexp(x, rate) / qexp_cdf)
 }
-results_MLE <- data.frame(Quantile = numeric(0), Size = numeric(0), Statistic = numeric(0), p_Value = numeric(0))
-subintervals_MLE <- list()
+results <- data.frame(Quantile = numeric(0), Size = numeric(0), Statistic = numeric(0), p_Value = numeric(0))
+subintervals <- list()
 options(repr.plot.width = 15, repr.plot.height = 6)
 par(mfrow = c(2, 5), mar = c(4, 4, 2, 1))
 for (i in 1:10)
 {
-  cutoff_MLE <- quantile(intervals_MLE, i / 10)
-  subintervals_MLE[[i]] <- intervals_MLE[intervals_MLE <= cutoff_MLE]
-  qqtrunc(subintervals_MLE[[i]], "exp", rate = 1, a = 0, b = cutoff_MLE, title = paste("MLE: D",i), xlabel = "Theoretical", ylabel = "Sample")
+  cutoff <- quantile(intervals, i / 10)
+  subintervals[[i]] <- intervals[intervals <= cutoff]
+  qqtrunc(subintervals[[i]], "exp", rate = 1, a = 0, b = cutoff, title = paste("MLE: D",i), xlabel = "Theoretical", ylabel = "Sample")
   abline(0, 1, col = "red")
-  ks_result_MLE <- ks.test(subintervals_MLE[[i]], truncated, rate = 1, q = cutoff_MLE)
-  results_MLE <- rbind(results_MLE, data.frame(Quantile = i / 10, Size = length(subintervals_MLE[[i]]), Statistic = ks_result_MLE$statistic, p_Value = ks_result_MLE$p.value))
+  ks_result <- ks.test(subintervals[[i]], truncated, rate = 1, q = cutoff)
+  results <- rbind(results, data.frame(Quantile = i / 10, Size = length(subintervals[[i]]), Statistic = ks_result$statistic, p_Value = ks_result$p.value))
 }
 par(mfrow = c(1, 1))
-print(results_MLE)
-
-#Truncated GMM
-results_GMM <- data.frame(Quantile = numeric(0), Size = numeric(0), Statistic = numeric(0), p_Value = numeric(0))
-subintervals_GMM <- list()
-options(repr.plot.width = 15, repr.plot.height = 6)
-par(mfrow = c(2, 5), mar = c(4, 4, 2, 1))
-for (i in 1:10)
-{
-  cutoff_GMM <- quantile(intervals_GMM, i / 10)
-  subintervals_GMM[[i]] <- intervals_GMM[intervals_GMM <= cutoff_GMM]
-  qqtrunc(subintervals_GMM[[i]], "exp", rate = 1, a = 0, b = cutoff_GMM, title = paste("GMM: D",i), xlabel = "Theoretical", ylabel = "Sample")
-  abline(0, 1, col = "red")
-  ks_result_GMM <- ks.test(subintervals_GMM[[i]], truncated, rate = 1, q = cutoff_GMM)
-  results_GMM <- rbind(results_GMM, data.frame(Quantile = i / 10, Size = length(subintervals_GMM[[i]]), Statistic = ks_result_GMM$statistic, p_Value = ks_result_GMM$p.value))
-}
-print(results_GMM)
-par(mfrow = c(1, 1))
+print(results)
 
 #MAPE
 MAPE <- function(actual, simulation)
@@ -794,27 +616,23 @@ MAPE <- function(actual, simulation)
 }
 MAPEGBM <- vector()
 MAPEMJD <- vector()
-MAPEHJD_MLEMCMC <- vector()
-MAPEHJD_GMM <- vector()
-pb <- progress_bar$new(total = n, format = "[:bar] :percent Finishes in: :eta", clear = TRUE)
-for (i in 1:10000)
+MAPEHJD <- vector()
+pb <- progress_bar$new(total = 15000, format = "[:bar] :percent Finishes in: :eta", clear = TRUE)
+for (i in 1:15000)
 {
   pb$tick()
   MAPEGBM[i] <- MAPE(close, GBM_path(open[1], drift, vol, N)$Price)
   MAPEMJD[i] <- MAPE(close,MJD_path(open[1], drift, vol, N, frequency, jumpexp, jumpsd)$Price)
-  MAPEHJD_MLEMCMC[i] <- MAPE(close, HJD_path_MLEMCMC(open[1], drift, vol, N, Solution_lambda_inf, Solution_alpha, betaMCMC, Star_EALD[1], Star_EALD[2], Star_EALD[3])$Price)
-  MAPEHJD_GMM[i] <- MAPE(close, HJD_path_GMM(open[1], Star_GMM[1], Star_GMM[2], N, Star_GMM[3], Star_GMM[4], Star_GMM[5], Star_Distribution[1], Star_Distribution[2], Star_Distribution[3])$Price)
-  Sys.sleep(1 / 10000)
+  MAPEHJD[i] <- MAPE(close, HJD_path(open[1], drift, vol, N, Solution_lambda_inf, Solution_alpha, betaMCMC, Star_EALD[1], Star_EALD[2], Star_EALD[3])$Price)
+  Sys.sleep(1 / 15000)
 }
 MCMAPEGBM <- mean(MAPEGBM)
 MCMAPEMJD <- mean(MAPEMJD)
-MCMAPEHJD_MLEMCMC <- mean(MAPEHJD_MLEMCMC)
-MCMAPEHJD_GMM <- mean(MAPEHJD_GMM)
+MCMAPEHJD <- mean(MAPEHJD)
 MCMAPEGBM
 MCMAPEMJD
-MCMAPEHJD_MLEMCMC
+MCMAPEHJD
 MCMAPEHJD_GMM
 min(MAPEGBM)
 min(MAPEMJD)
-min(MAPEHJD_MLEMCMC)
-min(MAPEHJD_GMM)
+min(MAPEHJD)

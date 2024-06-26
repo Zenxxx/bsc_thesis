@@ -19,6 +19,7 @@ library(stats4)
 library(nloptr)
 #Anderson Darling tests.
 library(nortest)
+citation("nloptr")
 #Time series analysis.
 library(tseries)
 #MCMC diagnostics.
@@ -37,6 +38,9 @@ library(truncdist)
 library(QRM)
 #Progress Bar
 library(progress)
+#Parallel Computation
+library(parallel)
+
 
 # Seed
 set.seed(13793632)
@@ -419,7 +423,7 @@ Excecute_MCMC <- function(initial_beta, iterations, sd)
   pb <- progress_bar$new(total = 15000, format = "[:bar] :percent Finishes in: :eta", clear = TRUE)
   for(i in 1:iterations)
   {
-    pb$tick()
+    if (i %% 100 == 0) pb$tick(100)
     beta_proposal <- rnorm(1, beta, sd)
     while (beta_proposal < 0)
     {
@@ -432,7 +436,6 @@ Excecute_MCMC <- function(initial_beta, iterations, sd)
       beta <- beta_proposal
     }
     beta_samples[i] <- beta
-    Sys.sleep(1 / 15000)
   }
   return(beta_samples)
 }
@@ -612,27 +615,45 @@ print(results)
 #MAPE
 MAPE <- function(actual, simulation)
 {
-  return(sum(abs((actual-simulation)/actual)))
+  return(mean(abs((actual-simulation)/actual))*100)
 }
-MAPEGBM <- vector()
-MAPEMJD <- vector()
-MAPEHJD <- vector()
+
+cl <- makeCluster(detectCores() - 1)
+clusterExport(cl, list("MAPE", "EALD_sample", "close", "GBM_path", "MJD_path", "HJD_path", "open", "drift", "vol", "N", "frequency", "jumpexp", "jumpsd", "Solution_lambda_inf", "Solution_alpha", "betaMCMC", "Star_EALD", "simulateHawkes"))
+clusterEvalQ(cl, {
+  library(progress)
+})
+
 pb <- progress_bar$new(total = 15000, format = "[:bar] :percent Finishes in: :eta", clear = TRUE)
-for (i in 1:15000)
-{
-  pb$tick()
-  MAPEGBM[i] <- MAPE(close, GBM_path(open[1], drift, vol, N)$Price)
-  MAPEMJD[i] <- MAPE(close,MJD_path(open[1], drift, vol, N, frequency, jumpexp, jumpsd)$Price)
-  MAPEHJD[i] <- MAPE(close, HJD_path(open[1], drift, vol, N, Solution_lambda_inf, Solution_alpha, betaMCMC, Star_EALD[1], Star_EALD[2], Star_EALD[3])$Price)
-  Sys.sleep(1 / 15000)
+results <- list()
+for (i in 1:15000) {
+  
+  result <- parLapply(cl, list(i), function(i) {
+    list(
+      MAPEGBM = MAPE(close, GBM_path(open[1], drift, vol, N)$Price),
+      MAPEMJD = MAPE(close, MJD_path(open[1], drift, vol, N, frequency, jumpexp, jumpsd)$Price),
+      MAPEHJD = MAPE(close, HJD_path(open[1], drift, vol, N, Solution_lambda_inf, Solution_alpha, betaMCMC, Star_EALD[1], Star_EALD[2], Star_EALD[3])$Price)
+    )
+  })
+    results[[i]] <- result[[1]]
+    if (i %% 100 == 0) pb$tick(100)
 }
+stopCluster(cl)
+MAPEGBM <- sapply(results, function(x) x$MAPEGBM)
+MAPEMJD <- sapply(results, function(x) x$MAPEMJD)
+MAPEHJD <- sapply(results, function(x) x$MAPEHJD)
 MCMAPEGBM <- mean(MAPEGBM)
 MCMAPEMJD <- mean(MAPEMJD)
 MCMAPEHJD <- mean(MAPEHJD)
 MCMAPEGBM
 MCMAPEMJD
 MCMAPEHJD
-MCMAPEHJD_GMM
 min(MAPEGBM)
 min(MAPEMJD)
 min(MAPEHJD)
+median(MAPEGBM)
+median(MAPEMJD)
+median(MAPEHJD)
+max(MAPEGBM)
+max(MAPEGBM)
+max(MAPEGBM)

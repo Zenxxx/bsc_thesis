@@ -19,7 +19,6 @@ library(stats4)
 library(nloptr)
 #Anderson Darling tests.
 library(nortest)
-citation("nloptr")
 #Time series analysis.
 library(tseries)
 #MCMC diagnostics.

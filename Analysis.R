@@ -409,11 +409,11 @@ B_Integral <- function(beta,data,T)
   })
 }
 
-muMLE <- Star_JIP[3]
-alphaMLE <- Star_JIP[1]
+muMLE <- Star_JIP[1]
+alphaMLE <- Star_JIP[2]
 priorbeta <- function(beta)
 {
-  Star_JIP[2]^2/gamma(2)*beta^{-2-1}*exp(-Star_JIP[2]/2)
+  0.1*exp(-0.1*beta)
 }
 Excecute_MCMC <- function(initial_beta, iterations, sd)
 {
@@ -439,10 +439,10 @@ Excecute_MCMC <- function(initial_beta, iterations, sd)
   return(beta_samples)
 }
 burnin <- 2000
-Chain1_raw <- Excecute_MCMC(initial_beta = Star_JIP[2], iterations = 15000, sd = beta_sd)
-Chain2_raw <- Excecute_MCMC(initial_beta = Star_JIP[2], iterations = 15000, sd = beta_sd)
-Chain3_raw <- Excecute_MCMC(initial_beta = Star_JIP[2], iterations = 15000, sd = beta_sd)
-Chain4_raw <- Excecute_MCMC(initial_beta = Star_JIP[2], iterations = 15000, sd = beta_sd)
+Chain1_raw <- Excecute_MCMC(initial_beta = Star_JIP[3], iterations = 15000, sd = beta_sd)
+Chain2_raw <- Excecute_MCMC(initial_beta = Star_JIP[3], iterations = 15000, sd = beta_sd)
+Chain3_raw <- Excecute_MCMC(initial_beta = Star_JIP[3], iterations = 15000, sd = beta_sd)
+Chain4_raw <- Excecute_MCMC(initial_beta = Star_JIP[3], iterations = 15000, sd = beta_sd)
 Chain1 <- Chain1_raw[(burnin+1):length(Chain1_raw)]
 Chain2 <- Chain2_raw[(burnin+1):length(Chain2_raw)]
 Chain3 <- Chain3_raw[(burnin+1):length(Chain3_raw)]
@@ -498,7 +498,7 @@ Solution_Score <- nleqslv(Initial_Score, Score,beta=betaMCMC,event=detected_jump
 Solution_lambda_inf <- Solution_Score$x[1]
 Solution_alpha <- Solution_Score$x[2]
 
-#HJD MLEMCMC Simulation
+#HJD Simulation
 EALD_sample <- function(n,p,a,b)
 {
   prob_pos <- rbinom(n, 1, p) == 1
@@ -561,7 +561,7 @@ KS <- ks.test(jump, function(x) EALD(x, Star_EALD[1], Star_EALD[2], Star_EALD[3]
 print(KS)
 
 # Testing for Hawkes
-Integration_Hawkes <- function(times, mu, alpha, beta)
+Integration_Hawkes <- function(mu, alpha, beta)
 {
   cum_intensity <- numeric(N)
   lambda <- numeric(N)
@@ -580,8 +580,8 @@ Integration_Hawkes <- function(times, mu, alpha, beta)
   }
   return(cum_intensity)
 }
-#MLE
-transformed_times <- Integration_Hawkes(detected_jumps, Solution_lambda_inf, Solution_alpha, betaMCMC)
+
+transformed_times <- Integration_Hawkes(Solution_lambda_inf, Solution_alpha, betaMCMC)
 Hawkes_Poisson <- transformed_times[detected_jumps]
 intervals <- diff(Hawkes_Poisson)
 
@@ -611,6 +611,9 @@ for (i in 1:10)
 par(mfrow = c(1, 1))
 print(results)
 
+#Set new seed (No need to repeat the MCMC again)
+set.seed(522)
+
 #MAPE
 MAPE <- function(actual, simulation)
 {
@@ -623,9 +626,9 @@ clusterEvalQ(cl, {
   library(progress)
 })
 
-pb <- progress_bar$new(total = 15000, format = "[:bar] :percent Finishes in: :eta", clear = TRUE)
+pb <- progress_bar$new(total = 10000, format = "[:bar] :percent Finishes in: :eta", clear = TRUE)
 results <- list()
-for (i in 1:15000) {
+for (i in 1:10000) {
   
   result <- parLapply(cl, list(i), function(i) {
     list(
@@ -654,5 +657,5 @@ median(MAPEGBM)
 median(MAPEMJD)
 median(MAPEHJD)
 max(MAPEGBM)
-max(MAPEGBM)
-max(MAPEGBM)
+max(MAPEMJD)
+max(MAPEHJD)

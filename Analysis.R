@@ -39,6 +39,8 @@ library(QRM)
 library(progress)
 #Parallel Computation
 library(parallel)
+library(foreach)
+library(doParallel)
 
 
 # Seed
@@ -311,11 +313,6 @@ print(sd_p)
 #Probability for positive jumps
 p <- length(jump[0<jump])/length(jump)
 p
-#Wald test
-W <- (Star_EALD[1]-p)^2/sd_p
-p_value <- 1 - pchisq(W, 1)
-cat("Wald statistic: ", W, "\n")
-cat("p-value: ", p_value, "\n")
 
 #Function A
 A <- function(beta,event)
@@ -419,10 +416,8 @@ Excecute_MCMC <- function(initial_beta, iterations, sd)
 {
   beta <- initial_beta
   beta_samples <- numeric(iterations)
-  pb <- progress_bar$new(total = 15000, format = "[:bar] :percent Finishes in: :eta", clear = TRUE)
   for(i in 1:iterations)
   {
-    if (i %% 100 == 0) pb$tick(100)
     beta_proposal <- rnorm(1, beta, sd)
     while (beta_proposal < 0)
     {
@@ -438,15 +433,25 @@ Excecute_MCMC <- function(initial_beta, iterations, sd)
   }
   return(beta_samples)
 }
+
+cl <- makeCluster(detectCores() - 1)
+registerDoParallel(cl)
+clusterExport(cl, c("lambda_calculate", "B_Integral", "muMLE", "alphaMLE", "priorbeta", "Excecute_MCMC", "Star_JIP", "detected_jumps", "N", "beta_sd"))
 burnin <- 2000
-Chain1_raw <- Excecute_MCMC(initial_beta = Star_JIP[3], iterations = 15000, sd = beta_sd)
-Chain2_raw <- Excecute_MCMC(initial_beta = Star_JIP[3], iterations = 15000, sd = beta_sd)
-Chain3_raw <- Excecute_MCMC(initial_beta = Star_JIP[3], iterations = 15000, sd = beta_sd)
-Chain4_raw <- Excecute_MCMC(initial_beta = Star_JIP[3], iterations = 15000, sd = beta_sd)
-Chain1 <- Chain1_raw[(burnin+1):length(Chain1_raw)]
-Chain2 <- Chain2_raw[(burnin+1):length(Chain2_raw)]
-Chain3 <- Chain3_raw[(burnin+1):length(Chain3_raw)]
-Chain4 <- Chain4_raw[(burnin+1):length(Chain4_raw)]
+iterations <- 15000
+results_MCMC <- foreach(i = 1:4, .combine = 'cbind') %dopar% {
+  Excecute_MCMC(initial_beta = Star_JIP[3], iterations = iterations, sd = beta_sd)
+}
+stopCluster(cl)
+
+Chain1_raw <- results_MCMC[, 1]
+Chain2_raw <- results_MCMC[, 2]
+Chain3_raw <- results_MCMC[, 3]
+Chain4_raw <- results_MCMC[, 4]
+Chain1 <- Chain1_raw[(burnin+1):iterations]
+Chain2 <- Chain2_raw[(burnin+1):iterations]
+Chain3 <- Chain3_raw[(burnin+1):iterations]
+Chain4 <- Chain4_raw[(burnin+1):iterations]
 Chain1_mcmc <- mcmc(Chain1)
 Chain2_mcmc <- mcmc(Chain2)
 Chain3_mcmc <- mcmc(Chain3)
@@ -493,7 +498,7 @@ Score <- function(param, beta, event)
   
   return(c(eq1, eq2))
 }
-Initial_Score <- c(runif(1),runif(1))
+Initial_Score <- c(Star_JIP[1],Star_JIP[2])
 Solution_Score <- nleqslv(Initial_Score, Score,beta=betaMCMC,event=detected_jumps)
 Solution_lambda_inf <- Solution_Score$x[1]
 Solution_alpha <- Solution_Score$x[2]
@@ -612,7 +617,7 @@ par(mfrow = c(1, 1))
 print(results)
 
 #Set new seed (No need to repeat the MCMC again)
-set.seed(522)
+set.seed(123)
 
 #MAPE
 MAPE <- function(actual, simulation)
@@ -621,29 +626,24 @@ MAPE <- function(actual, simulation)
 }
 
 cl <- makeCluster(detectCores() - 1)
-clusterExport(cl, list("MAPE", "EALD_sample", "close", "GBM_path", "MJD_path", "HJD_path", "open", "drift", "vol", "N", "frequency", "jumpexp", "jumpsd", "Solution_lambda_inf", "Solution_alpha", "betaMCMC", "Star_EALD", "simulateHawkes"))
-clusterEvalQ(cl, {
-  library(progress)
-})
+registerDoParallel(cl)
 
-pb <- progress_bar$new(total = 10000, format = "[:bar] :percent Finishes in: :eta", clear = TRUE)
-results <- list()
-for (i in 1:10000) {
-  
-  result <- parLapply(cl, list(i), function(i) {
-    list(
-      MAPEGBM = MAPE(close, GBM_path(open[1], drift, vol, N)$Price),
-      MAPEMJD = MAPE(close, MJD_path(open[1], drift, vol, N, frequency, jumpexp, jumpsd)$Price),
-      MAPEHJD = MAPE(close, HJD_path(open[1], drift, vol, N, Solution_lambda_inf, Solution_alpha, betaMCMC, Star_EALD[1], Star_EALD[2], Star_EALD[3])$Price)
-    )
-  })
-    results[[i]] <- result[[1]]
-    if (i %% 100 == 0) pb$tick(100)
+clusterExport(cl, list("MAPE", "EALD_sample", "close", "GBM_path", "MJD_path", "HJD_path", "open", "drift", "vol", "N", "frequency", "jumpexp", "jumpsd", "Solution_lambda_inf", "Solution_alpha", "betaMCMC", "Star_EALD", "simulateHawkes"))
+total_iterations <- 10000
+
+results_MAPE <- foreach(i = 1:total_iterations, .combine = 'c') %dopar% {
+  result_MAPE <- list(
+    MAPEGBM = MAPE(close, GBM_path(open[1], drift, vol, N)$Price),
+    MAPEMJD = MAPE(close, MJD_path(open[1], drift, vol, N, frequency, jumpexp, jumpsd)$Price),
+    MAPEHJD = MAPE(close, HJD_path(open[1], drift, vol, N, Solution_lambda_inf, Solution_alpha, betaMCMC, Star_EALD[1], Star_EALD[2], Star_EALD[3])$Price)
+  )
+  result_MAPE
 }
+
 stopCluster(cl)
-MAPEGBM <- sapply(results, function(x) x$MAPEGBM)
-MAPEMJD <- sapply(results, function(x) x$MAPEMJD)
-MAPEHJD <- sapply(results, function(x) x$MAPEHJD)
+MAPEGBM <- unlist(results_MAPE[seq(1, length(results_MAPE), 3)])
+MAPEMJD <- unlist(results_MAPE[seq(2, length(results_MAPE), 3)])
+MAPEHJD <- unlist(results_MAPE[seq(3, length(results_MAPE), 3)])
 MCMAPEGBM <- mean(MAPEGBM)
 MCMAPEMJD <- mean(MAPEMJD)
 MCMAPEHJD <- mean(MAPEHJD)
@@ -659,3 +659,6 @@ median(MAPEHJD)
 max(MAPEGBM)
 max(MAPEMJD)
 max(MAPEHJD)
+sd(MAPEGBM)
+sd(MAPEMJD)
+sd(MAPEHJD)
